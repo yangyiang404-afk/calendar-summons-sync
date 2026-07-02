@@ -1,0 +1,4 @@
+interface:
+  display_name: "传票日历同步"
+  short_description: "传票识别、OCR 与 iCloud 日历自动同步部署"
+  default_prompt: "Use $calendar-summons-sync to install and verify summons recognition with iCloud Calendar sync."
