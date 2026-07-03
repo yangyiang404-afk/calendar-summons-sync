@@ -445,6 +445,11 @@ def extract_text(path: Path) -> str:
 
 def normalize_text(text: str) -> str:
     text = text.replace("\u3000", " ")
+    text = re.sub(
+        r"(上午|下午|晚上|中午|晚)\s*[%％]\s*(\d{2})",
+        r"\g<1>9时\2分",
+        text,
+    )
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
@@ -460,7 +465,14 @@ def extract_court(text: str) -> str | None:
             match = re.search(r"([\u4e00-\u9fa5]{2,40}人民法院)", line)
             if match:
                 return match.group(1)
+        if "仲裁委员会" in line:
+            match = re.search(r"([\u4e00-\u9fa5]{2,50}仲裁委员会)", line)
+            if match:
+                return match.group(1)
     match = re.search(r"([\u4e00-\u9fa5]{2,40}人民法院)", text)
+    if match:
+        return match.group(1)
+    match = re.search(r"([\u4e00-\u9fa5]{2,50}仲裁委员会)", text)
     return match.group(1) if match else None
 
 
@@ -468,6 +480,7 @@ def extract_case_number(text: str) -> str | None:
     patterns = [
         r"[（(]\s*20\d{2}\s*[）)]\s*[\u4e00-\u9fa5A-Za-z0-9第初终执再民行刑申破保号之一二三四五六七八九十\-]+号",
         r"案号[:：]?\s*([^\n，。；;]{8,50}?号)",
+        r"([深粤京沪穗杭广佛莞珠中][A-Za-z\u4e00-\u9fa5]{1,15}\s*(?:[（(][^）)(]{1,15}[）)])?\s*案\s*[【\[]\s*20\d{2}\s*[】\]]\s*\d+\s*号)",
     ]
     for pattern in patterns:
         match = re.search(pattern, text)
@@ -479,11 +492,12 @@ def extract_case_number(text: str) -> str | None:
 def extract_location(text: str) -> tuple[str | None, str | None]:
     hearing_room = None
     location = None
-    for line in text.splitlines():
+    lines = text.splitlines()
+    for line in lines:
         line_clean = clean_line(line)
         if not line_clean:
             continue
-        if "法庭" in line_clean or "审判庭" in line_clean:
+        if "法庭" in line_clean or "审判庭" in line_clean or re.search(r"仲裁[一二三四五六七八九十\d]+庭", line_clean):
             room_match = re.search(
                 r"(?:在|地点[:：]?|地址[:：]?)\s*((?:本院|我院)?第[一二三四五六七八九十\d]+(?:审判庭|法庭)(?:[（(][^）)]{1,20}[）)])?)",
                 line_clean,
@@ -492,18 +506,35 @@ def extract_location(text: str) -> tuple[str | None, str | None]:
                 room_match = re.search(r"((?:本院|我院)?第[一二三四五六七八九十\d]+(?:审判庭|法庭)(?:[（(][^）)]{1,20}[）)])?)", line_clean)
             if not room_match:
                 room_match = re.search(r"([A-Za-z0-9（）()\-]{1,20}(?:审判庭|法庭)(?:[（(][^）)]{1,20}[）)])?)", line_clean)
+            if not room_match:
+                room_match = re.search(r"([\u4e00-\u9fa5A-Za-z0-9（）()\-]{1,30}仲裁[一二三四五六七八九十\d]+庭)", line_clean)
             hearing_room = room_match.group(1) if room_match else line_clean
             break
-    for line in text.splitlines():
+    for index, line in enumerate(lines):
         line_clean = clean_line(line)
         if not line_clean:
             continue
-        if any(key in line_clean for key in ["地点", "地址", "法庭", "审判庭"]):
+        if any(key in line_clean for key in ["地点", "地址", "法庭", "审判庭"]) or re.search(r"仲裁[一二三四五六七八九十\d]+庭", line_clean):
             if hearing_room:
                 location = hearing_room
+                location_match = re.search(r"(?:地点|地址)[:：]?\s*([^\n。；;]{2,80})", line_clean)
+                if location_match:
+                    location = clean_line(location_match.group(1))
+                if ("(" in line_clean or "（" in line_clean) and not (")" in line_clean or "）" in line_clean):
+                    for follow in lines[index + 1 : index + 3]:
+                        follow_clean = clean_line(follow)
+                        if follow_clean:
+                            location = clean_line(f"{location} {follow_clean}")
+                            break
                 break
             location_match = re.search(r"(?:地点|地址)[:：]?\s*([^\n。；;]{2,80})", line_clean)
             location = clean_line(location_match.group(1)) if location_match else line_clean[:80]
+            if ("(" in location or "（" in location) and not (")" in location or "）" in location):
+                for follow in lines[index + 1 : index + 3]:
+                    follow_clean = clean_line(follow)
+                    if follow_clean:
+                        location = clean_line(f"{location} {follow_clean}")
+                        break
             break
     return location, hearing_room
 
