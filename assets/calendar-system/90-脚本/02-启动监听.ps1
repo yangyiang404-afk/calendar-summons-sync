@@ -17,6 +17,14 @@ foreach ($root in $localToolRoots) {
     }
 }
 
+$systemDir = Split-Path -Parent $PSScriptRoot
+
 $scriptPath = Join-Path $PSScriptRoot "process_summons.py"
-python $scriptPath --watch
-exit $LASTEXITCODE
+$process = Start-Process `
+    -FilePath "python" `
+    -ArgumentList @($scriptPath, "--watch") `
+    -NoNewWindow `
+    -PassThru
+
+$process.WaitForExit()
+exit $process.ExitCode
